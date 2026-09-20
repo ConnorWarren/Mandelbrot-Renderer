@@ -9,6 +9,7 @@ const int MAX_ITERATIONS = 1000;
 
 using WindowPtr = std::unique_ptr<SDL_Window, decltype(&SDL_DestroyWindow)>;
 using RendererPtr = std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)>;
+using TexturePtr = std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)>;
 
 bool insideMandelbrot(std::complex<double> c) {
     int i = 0;
@@ -62,6 +63,7 @@ private:
         ),
         SDL_DestroyRenderer
     };
+    TexturePtr texture;
     MandelbrotRegion region;
     std::unique_ptr<int[]> pixelData;
     bool running;
@@ -79,13 +81,17 @@ private:
                     running = false;
                     return false;
                 case SDL_EVENT_WINDOW_RESIZED:
-                    windowWidth = event.window.data1;
-                    windowHeight = event.window.data2;
-                    updateRendering = true;
+                    handleWindowResized(event);
                     break;
             }
         }
         return true;
+    }
+    void handleWindowResized(SDL_Event event) {
+        windowWidth = event.window.data1;
+        windowHeight = event.window.data2;
+        texture = createTexture();
+        updateRendering = true;
     }
     void computeSet() {
         int resolution = windowWidth * windowHeight;
@@ -103,16 +109,39 @@ private:
     }
     void render() {
         SDL_RenderClear(renderer.get());
-        for (int i = 0; i < windowWidth * windowHeight; i++) {
-            if (pixelData[i])
-                SDL_SetRenderDrawColor(renderer.get(), 255, 255, 255, 255);
-            else
-                SDL_SetRenderDrawColor(renderer.get(), 0, 0, 0, 255);
-            int row = i / windowWidth;
-            int col = i % windowWidth;
-            SDL_RenderPoint(renderer.get(), row, col);
+        void *pixels = NULL;
+        int pitch = 0;
+
+        if (!SDL_LockTexture(texture.get(), nullptr, &pixels, &pitch)) {
+            return;
         }
+        uint32_t *pixelBuffer = (uint32_t *) pixels;
+
+        for (int y = 0; y < windowHeight; y++) {
+            for (int x = 0; x < windowWidth; x++) {
+                int index = y * (pitch / sizeof(uint32_t)) + x;
+                uint8_t r = pixelData[index] * 255;
+                uint8_t g = pixelData[index] * 255;
+                uint8_t b = pixelData[index] * 255;
+                uint8_t a = 255;
+                pixelBuffer[index] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
+        }
+
+        SDL_UnlockTexture(texture.get());
+        SDL_RenderTexture(renderer.get(), texture.get(), nullptr, nullptr);
         SDL_RenderPresent(renderer.get());
+    }
+    TexturePtr createTexture() {
+        return TexturePtr{
+            SDL_CreateTexture(
+                renderer.get(),
+                SDL_PIXELFORMAT_ARGB8888,
+                SDL_TEXTUREACCESS_STREAMING,
+                windowWidth, windowHeight
+            ),
+            SDL_DestroyTexture
+        };
     }
 public:
     void run(MandelbrotRegion region = MandelbrotRegion()) {
@@ -130,6 +159,7 @@ public:
             }
         }
     }
+    MandelbrotWindow() : texture{createTexture()} {}
 };
 
 int main() {
