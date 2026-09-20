@@ -78,6 +78,11 @@ private:
                 case SDL_EVENT_QUIT:
                     running = false;
                     return false;
+                case SDL_EVENT_WINDOW_RESIZED:
+                    windowWidth = event.window.data1;
+                    windowHeight = event.window.data2;
+                    updateRendering = true;
+                    break;
             }
         }
         return true;
